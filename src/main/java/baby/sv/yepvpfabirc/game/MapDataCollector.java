@@ -20,6 +20,12 @@ public class MapDataCollector {
     // 缓存: chunkKey(long) → 4x4子区块RGB颜色(int[16])
     private static final ConcurrentHashMap<Long, int[]> chunkColorCache = new ConcurrentHashMap<>();
 
+    // 颜色缓存版本号: 每次区块颜色发生增删时自增, 用于复用已序列化的颜色字节块
+    // (颜色块是地图包里最大的部分且对所有玩家相同, 仅在版本变化时才重新序列化)
+    private static volatile long colorCacheVersion = 0;
+    private static byte[] cachedColorRaw = null;
+    private static long cachedColorRawVersion = -1;
+
     // 渐进扫描状态: 遍历整个世界边界区域
     private static int scanCursorIndex = 0;
     private static List<long[]> scanQueue = null; // [chunkX, chunkZ] pairs stored as long[]{cx, cz}
@@ -50,6 +56,7 @@ public class MapDataCollector {
                 try {
                     int[] colors = sampleChunkSubColors(world, wc);
                     chunkColorCache.put(key, colors);
+                    colorCacheVersion++;
                 } catch (Exception ignored) {}
                 scanned++;
             }
@@ -82,7 +89,9 @@ public class MapDataCollector {
 
     // 强制刷新指定区块颜色(用于涂色等动态变化)
     public static void invalidateChunk(int chunkX, int chunkZ) {
-        chunkColorCache.remove(ChunkPos.toLong(chunkX, chunkZ));
+        if (chunkColorCache.remove(ChunkPos.toLong(chunkX, chunkZ)) != null) {
+            colorCacheVersion++;
+        }
     }
 
     // 清空缓存(游戏重置时)
@@ -91,31 +100,57 @@ public class MapDataCollector {
         scanQueue = null;
         scanCursorIndex = 0;
         fullScanComplete = false;
+        colorCacheVersion++;
+        cachedColorRaw = null;
     }
 
     // 构建地图数据 byte[]
     // 格式: [chunkCount(int)] + 每个chunk: [chunkX(short), chunkZ(short), 16*rgb(48 bytes)]
     //       + [playerCount(int)] + 每个player: [x(int), z(int), nameLen(short), name(bytes), markerColor(int)]
     //       + [paintedChunkCount(int)] + 每个: [chunkX(short), chunkZ(short), paintColor(byte)]
+    // 单个玩家完整地图包(用于MapRequest按需请求): 复用三段gzip成员拼接
+    // 注意: GZIPInputStream 原生支持多段(multi-member)流, 客户端无需任何改动
     public static byte[] buildMapData(ServerWorld world, UUID requestingPlayer) {
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            DataOutputStream dos = new DataOutputStream(baos);
+        return concatMembers(
+                buildColorMemberGzipped(world),
+                buildMarkersMemberGzipped(world, requestingPlayer),
+                buildSuffixMemberGzipped(world));
+    }
 
-            // 世界边界半径 + 中心坐标
+    // ===== 共享颜色段(对所有玩家相同): [边界半径,中心X,中心Z] + [区块颜色块] 整段gzip =====
+    // 边界半径/中心每tick可能变化(边界收缩), 故header每次写新值; 区块颜色块按版本号缓存复用
+    public static byte[] buildColorMemberGzipped(ServerWorld world) {
+        try {
             net.minecraft.world.border.WorldBorder border = world.getWorldBorder();
-            int borderRadius = (int) (border.getSize() / 2);
-            dos.writeInt(borderRadius);
+            byte[] colorRaw = buildColorRaw();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(colorRaw.length + 12);
+            DataOutputStream dos = new DataOutputStream(baos);
+            dos.writeInt((int) (border.getSize() / 2));
             dos.writeInt((int) border.getCenterX());
             dos.writeInt((int) border.getCenterZ());
+            dos.write(colorRaw);
+            dos.flush();
+            return gzip(baos.toByteArray());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return gzip(new byte[0]);
+        }
+    }
 
-            // 区块颜色数据(4x4子区块, 每区块16个RGB)
+    // 区块颜色原始字节: [chunkCount(int)] + 每个chunk[chunkX(short),chunkZ(short),16*rgb] —— 按版本号缓存
+    private static byte[] buildColorRaw() {
+        long v = colorCacheVersion;
+        byte[] cached = cachedColorRaw;
+        if (cached != null && cachedColorRawVersion == v) {
+            return cached;
+        }
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(chunkColorCache.size() * 52 + 8);
+            DataOutputStream dos = new DataOutputStream(baos);
             dos.writeInt(chunkColorCache.size());
             for (Map.Entry<Long, int[]> entry : chunkColorCache.entrySet()) {
-                int cx = ChunkPos.getPackedX(entry.getKey());
-                int cz = ChunkPos.getPackedZ(entry.getKey());
-                dos.writeShort(cx);
-                dos.writeShort(cz);
+                dos.writeShort(ChunkPos.getPackedX(entry.getKey()));
+                dos.writeShort(ChunkPos.getPackedZ(entry.getKey()));
                 int[] subColors = entry.getValue();
                 for (int i = 0; i < 16; i++) {
                     int rgb = subColors[i];
@@ -124,6 +159,26 @@ public class MapDataCollector {
                     dos.writeByte(rgb & 0xFF);
                 }
             }
+            dos.flush();
+            byte[] built = baos.toByteArray();
+            cachedColorRaw = built;
+            cachedColorRawVersion = v;
+            return built;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new byte[]{0, 0, 0, 0};
+        }
+    }
+
+    // ===== 玩家标记段(按请求者职业可见性不同, 每人单独构建) =====
+    public static byte[] buildMarkersMemberGzipped(ServerWorld world, UUID requestingPlayer) {
+        return gzip(buildMarkersRaw(world, requestingPlayer));
+    }
+
+    private static byte[] buildMarkersRaw(ServerWorld world, UUID requestingPlayer) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputStream dos = new DataOutputStream(baos);
 
             // 玩家位置标记(根据请求者职业决定是否显示)
             GameManager gm = GameManager.getInstance();
@@ -257,6 +312,25 @@ public class MapDataCollector {
                 dos.writeFloat(m.yaw);
             }
 
+            dos.flush();
+            return baos.toByteArray();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new byte[]{0, 0, 0, 0}; // markerCount=0
+        }
+    }
+
+    // ===== 全局附加数据段(对所有玩家相同, 每周期只构建一次) =====
+    public static byte[] buildSuffixMemberGzipped(ServerWorld world) {
+        return gzip(buildSuffixRaw(world));
+    }
+
+    private static byte[] buildSuffixRaw(ServerWorld world) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputStream dos = new DataOutputStream(baos);
+            GameManager gm = GameManager.getInstance();
+
             // ALLAND颜料区域数据(从PaintZone系统读取)
             Map<Long, Byte> paintedChunkColors = new HashMap<>();
             for (GameManager.PaintZone zone : gm.getPaintZones()) {
@@ -371,10 +445,20 @@ public class MapDataCollector {
             }
 
             dos.flush();
-            // gzip压缩减少传输量
-            byte[] raw = baos.toByteArray();
-            java.io.ByteArrayOutputStream gzBaos = new java.io.ByteArrayOutputStream();
-            try (java.util.zip.GZIPOutputStream gz = new java.util.zip.GZIPOutputStream(gzBaos)) {
+            return baos.toByteArray();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new byte[0];
+        }
+    }
+
+    // gzip压缩(BEST_SPEED): 地图数据重复度高, 低压缩级别即可大幅减小体积且CPU开销远低于默认级别
+    private static byte[] gzip(byte[] raw) {
+        try {
+            java.io.ByteArrayOutputStream gzBaos = new java.io.ByteArrayOutputStream(Math.max(32, raw.length / 3));
+            try (java.util.zip.GZIPOutputStream gz = new java.util.zip.GZIPOutputStream(gzBaos) {
+                { this.def.setLevel(java.util.zip.Deflater.BEST_SPEED); }
+            }) {
                 gz.write(raw);
             }
             return gzBaos.toByteArray();
@@ -382,6 +466,19 @@ public class MapDataCollector {
             e.printStackTrace();
             return new byte[0];
         }
+    }
+
+    // 拼接多个gzip成员为一个多段gzip流(客户端GZIPInputStream按序解出原始内容)
+    public static byte[] concatMembers(byte[]... parts) {
+        int total = 0;
+        for (byte[] p : parts) total += p.length;
+        byte[] out = new byte[total];
+        int pos = 0;
+        for (byte[] p : parts) {
+            System.arraycopy(p, 0, out, pos, p.length);
+            pos += p.length;
+        }
+        return out;
     }
 
     // 采样4x4子区块颜色: 每4x4子区取中心点采样

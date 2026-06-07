@@ -726,99 +726,156 @@ public class LobbyManager {
         int cy = LOBBY_SPAWN.getY();
         int cz = LOBBY_SPAWN.getZ();
 
-        BlockState quartzBlock = Blocks.QUARTZ_BLOCK.getDefaultState();
-        BlockState quartzPillar = Blocks.QUARTZ_PILLAR.getDefaultState();
-        BlockState smoothQuartz = Blocks.SMOOTH_QUARTZ.getDefaultState();
-        BlockState glowstone = Blocks.GLOWSTONE.getDefaultState();
-        BlockState seaLantern = Blocks.SEA_LANTERN.getDefaultState();
-        BlockState barrier = Blocks.BARRIER.getDefaultState();
-        BlockState blackConcrete = Blocks.BLACK_CONCRETE.getDefaultState();
-        BlockState whiteConcrete = Blocks.WHITE_CONCRETE.getDefaultState();
-        BlockState cyanConcrete = Blocks.CYAN_CONCRETE.getDefaultState();
-        BlockState purpleGlass = Blocks.PURPLE_STAINED_GLASS.getDefaultState();
-        BlockState cyanGlass = Blocks.CYAN_STAINED_GLASS.getDefaultState();
-
         int halfW = 20; // 大厅半宽(41x41)
         int height = 10; // 大厅高度
 
-        // ===== 地板: 棋盘格图案 =====
+        // 调色板: 深板岩暗色基调 + 石英亮线 + 海晶灯/青紫玻璃霓虹点缀
+        BlockState barrier = Blocks.BARRIER.getDefaultState();
+        BlockState polishedDeepslate = Blocks.POLISHED_DEEPSLATE.getDefaultState();
+        BlockState deepslateBricks = Blocks.DEEPSLATE_BRICKS.getDefaultState();
+        BlockState deepslateTiles = Blocks.DEEPSLATE_TILES.getDefaultState();
+        BlockState chiseledDeepslate = Blocks.CHISELED_DEEPSLATE.getDefaultState();
+        BlockState smoothQuartz = Blocks.SMOOTH_QUARTZ.getDefaultState();
+        BlockState quartzPillar = Blocks.QUARTZ_PILLAR.getDefaultState();
+        BlockState chiseledQuartz = Blocks.CHISELED_QUARTZ_BLOCK.getDefaultState();
+        BlockState cyanConcrete = Blocks.CYAN_CONCRETE.getDefaultState();
+        BlockState seaLantern = Blocks.SEA_LANTERN.getDefaultState();
+        BlockState cyanGlass = Blocks.CYAN_STAINED_GLASS.getDefaultState();
+        BlockState purpleGlass = Blocks.PURPLE_STAINED_GLASS.getDefaultState();
+        BlockState lightBlueGlass = Blocks.LIGHT_BLUE_STAINED_GLASS.getDefaultState();
+        BlockState endRod = Blocks.END_ROD.getDefaultState();
+        BlockState amethyst = Blocks.AMETHYST_BLOCK.getDefaultState();
+        BlockState diamondBlock = Blocks.DIAMOND_BLOCK.getDefaultState();
+        BlockState beacon = Blocks.BEACON.getDefaultState();
+        BlockState air = Blocks.AIR.getDefaultState();
+
+        // ===== 地板: 同心环 + 发光十字光道 + 海晶灯外框 =====
         for (int x = cx - halfW; x <= cx + halfW; x++) {
             for (int z = cz - halfW; z <= cz + halfW; z++) {
-                BlockState floor;
                 int dx = Math.abs(x - cx);
                 int dz = Math.abs(z - cz);
-                // 中心圆形区域(半径5): 青色混凝土
-                if (dx * dx + dz * dz <= 25) {
-                    floor = cyanConcrete;
-                }
-                // 边缘装饰带
-                else if (dx == halfW || dz == halfW) {
-                    floor = blackConcrete;
-                }
-                // 棋盘格
-                else {
-                    floor = ((x + z) % 2 == 0) ? smoothQuartz : whiteConcrete;
+                int cheb = Math.max(dx, dz);
+                int distSq = dx * dx + dz * dz;
+                BlockState floor;
+                if (cheb == halfW) {
+                    floor = polishedDeepslate;                                  // 最外框
+                } else if (cheb == halfW - 1) {
+                    floor = (((x + z) & 3) == 0) ? seaLantern : chiseledDeepslate; // 发光点缀框
+                } else if (dx <= 1 || dz <= 1) {
+                    floor = cyanConcrete;                                        // 中央十字光道
+                } else {
+                    int band = (int) Math.sqrt(distSq);
+                    floor = (band % 2 == 0) ? smoothQuartz : polishedDeepslate;  // 同心环
                 }
                 world.setBlockState(new BlockPos(x, cy - 1, z), floor, SET_FLAGS);
                 world.setBlockState(new BlockPos(x, cy - 2, z), barrier, SET_FLAGS);
             }
         }
 
-        // ===== 墙壁: 石英块 + 玻璃窗 =====
+        // ===== 墙壁: 深板岩砖墙体 + 每5格石英立柱 + 大玻璃窗 + 海晶灯腰线 =====
         for (int y = cy; y < cy + height; y++) {
             for (int x = cx - halfW; x <= cx + halfW; x++) {
-                // 北墙/南墙
-                for (int wallZ : new int[]{cz - halfW, cz + halfW}) {
-                    if (y >= cy + 2 && y <= cy + height - 3 && Math.abs(x - cx) <= 8 && Math.abs(x - cx) > 1) {
-                        world.setBlockState(new BlockPos(x, y, wallZ), (y % 2 == 0) ? cyanGlass : purpleGlass, SET_FLAGS);
-                    } else {
-                        world.setBlockState(new BlockPos(x, y, wallZ), quartzBlock, SET_FLAGS);
-                    }
+                boolean column = (((x - cx) % 5) == 0) || Math.abs(x - cx) == halfW;
+                BlockState w;
+                if (column) {
+                    w = (y == cy + height - 1) ? chiseledQuartz : quartzPillar;
+                } else if (y >= cy + 2 && y <= cy + 6) {
+                    w = ((y & 1) == 0) ? cyanGlass : purpleGlass;   // 窗
+                } else if (y == cy + 7) {
+                    w = seaLantern;                                 // 海晶灯腰线
+                } else {
+                    w = deepslateBricks;
                 }
+                world.setBlockState(new BlockPos(x, y, cz - halfW), w, SET_FLAGS);
+                world.setBlockState(new BlockPos(x, y, cz + halfW), w, SET_FLAGS);
             }
             for (int z = cz - halfW; z <= cz + halfW; z++) {
-                // 东墙/西墙
-                for (int wallX : new int[]{cx - halfW, cx + halfW}) {
-                    if (y >= cy + 2 && y <= cy + height - 3 && Math.abs(z - cz) <= 8 && Math.abs(z - cz) > 1) {
-                        world.setBlockState(new BlockPos(wallX, y, z), (y % 2 == 0) ? purpleGlass : cyanGlass, SET_FLAGS);
-                    } else {
-                        world.setBlockState(new BlockPos(wallX, y, z), quartzBlock, SET_FLAGS);
-                    }
+                boolean column = (((z - cz) % 5) == 0) || Math.abs(z - cz) == halfW;
+                BlockState w;
+                if (column) {
+                    w = (y == cy + height - 1) ? chiseledQuartz : quartzPillar;
+                } else if (y >= cy + 2 && y <= cy + 6) {
+                    w = ((y & 1) == 0) ? purpleGlass : cyanGlass;
+                } else if (y == cy + 7) {
+                    w = seaLantern;
+                } else {
+                    w = deepslateBricks;
+                }
+                world.setBlockState(new BlockPos(cx - halfW, y, z), w, SET_FLAGS);
+                // 东墙: z∈[-1,1] 且 y∈[cy,cy+2] 留出跑酷入口拱门
+                if (z >= cz - 1 && z <= cz + 1 && y <= cy + 2) {
+                    world.setBlockState(new BlockPos(cx + halfW, y, z), air, SET_FLAGS);
+                } else {
+                    world.setBlockState(new BlockPos(cx + halfW, y, z), w, SET_FLAGS);
+                }
+            }
+        }
+        // 东侧跑酷入口拱门镶边(石英框)
+        for (int y = cy; y <= cy + 3; y++) {
+            for (int z = cz - 2; z <= cz + 2; z++) {
+                boolean frame = (y == cy + 3) || z == cz - 2 || z == cz + 2;
+                boolean opening = (z >= cz - 1 && z <= cz + 1 && y <= cy + 2);
+                if (frame && !opening) {
+                    world.setBlockState(new BlockPos(cx + halfW, y, z), chiseledQuartz, SET_FLAGS);
                 }
             }
         }
 
-        // ===== 天花板: 石英块 + 海晶灯照明 =====
+        // ===== 天花板: 深板岩瓦 + 海晶灯网格 + 中央天窗(信标光束透出) =====
         for (int x = cx - halfW; x <= cx + halfW; x++) {
             for (int z = cz - halfW; z <= cz + halfW; z++) {
                 int dx = Math.abs(x - cx);
                 int dz = Math.abs(z - cz);
-                if (dx % 4 == 0 && dz % 4 == 0) {
-                    world.setBlockState(new BlockPos(x, cy + height, z), seaLantern, SET_FLAGS);
+                BlockState ceil;
+                if (dx * dx + dz * dz <= 9) {
+                    ceil = lightBlueGlass;                  // 中央天窗
+                } else if (dx % 4 == 0 && dz % 4 == 0) {
+                    ceil = seaLantern;
                 } else {
-                    world.setBlockState(new BlockPos(x, cy + height, z), quartzBlock, SET_FLAGS);
+                    ceil = deepslateTiles;
                 }
+                world.setBlockState(new BlockPos(x, cy + height, z), ceil, SET_FLAGS);
             }
         }
 
-        // ===== 四角柱子: 石英柱 + 海晶灯顶 =====
-        int[][] corners = {{-halfW + 2, -halfW + 2}, {-halfW + 2, halfW - 2},
-                          {halfW - 2, -halfW + 2}, {halfW - 2, halfW - 2}};
-        for (int[] c : corners) {
-            for (int y = cy; y < cy + height; y++) {
-                world.setBlockState(new BlockPos(cx + c[0], y, cz + c[1]), quartzPillar, SET_FLAGS);
-            }
-            world.setBlockState(new BlockPos(cx + c[0], cy + height - 1, cz + c[1]), seaLantern, SET_FLAGS);
+        // ===== 装饰灯柱: 四个内角灯柱(石英柱 + 海晶灯 + 末地烛) =====
+        int[][] posts = {{-10, -10}, {-10, 10}, {10, -10}, {10, 10}};
+        for (int[] p : posts) {
+            int px = cx + p[0];
+            int pz = cz + p[1];
+            world.setBlockState(new BlockPos(px, cy - 1, pz), chiseledQuartz, SET_FLAGS); // 底座
+            world.setBlockState(new BlockPos(px, cy, pz), quartzPillar, SET_FLAGS);
+            world.setBlockState(new BlockPos(px, cy + 1, pz), quartzPillar, SET_FLAGS);
+            world.setBlockState(new BlockPos(px, cy + 2, pz), seaLantern, SET_FLAGS);
+            world.setBlockState(new BlockPos(px, cy + 3, pz), endRod, SET_FLAGS);
         }
 
-        // ===== 中心装饰: 信标底座 =====
-        world.setBlockState(new BlockPos(cx, cy, cz), Blocks.BEACON.getDefaultState(), SET_FLAGS);
-        // 3x3铁块底座
+        // ===== 中央能量中庭: 信标光柱(玩家出生于此, 正好站在信标顶面) =====
+        // 信标能量基座: 3x3钻石块(地板层下方一格) + 屏障兜底
         for (int bx = -1; bx <= 1; bx++) {
             for (int bz = -1; bz <= 1; bz++) {
-                world.setBlockState(new BlockPos(cx + bx, cy - 1, cz + bz), Blocks.IRON_BLOCK.getDefaultState(), SET_FLAGS);
+                world.setBlockState(new BlockPos(cx + bx, cy - 2, cz + bz), diamondBlock, SET_FLAGS);
+                world.setBlockState(new BlockPos(cx + bx, cy - 3, cz + bz), barrier, SET_FLAGS);
             }
         }
+        // 中央地面纹章(5x5): 内圈錾制石英, 外圈海晶灯/青混凝土, 四角紫晶
+        for (int dx2 = -2; dx2 <= 2; dx2++) {
+            for (int dz2 = -2; dz2 <= 2; dz2++) {
+                if (dx2 == 0 && dz2 == 0) continue; // 中心留给信标
+                int cd = Math.max(Math.abs(dx2), Math.abs(dz2));
+                BlockState em;
+                if (cd == 1) {
+                    em = chiseledQuartz;
+                } else if (Math.abs(dx2) == 2 && Math.abs(dz2) == 2) {
+                    em = amethyst;
+                } else {
+                    em = (((dx2 + dz2) & 1) == 0) ? seaLantern : cyanConcrete;
+                }
+                world.setBlockState(new BlockPos(cx + dx2, cy - 1, cz + dz2), em, SET_FLAGS);
+            }
+        }
+        // 中央信标(位于地板层 cy-1, 玩家传送到 cy 正好站在信标顶面, 光束自脚下升起)
+        world.setBlockState(new BlockPos(cx, cy - 1, cz), beacon, SET_FLAGS);
 
         // ===== 屏障围栏 (大厅外围防止逃出, 但跑酷方向不封) =====
         for (int y = cy - 2; y <= cy + height + 1; y++) {
