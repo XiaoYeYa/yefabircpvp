@@ -46,6 +46,10 @@ public class GameManager {
     private long lastSaveTick = 0; // 上次存档时间
     private static final long REVEAL_DELAY = 6000; // 5 minutes before reveal
     private static final int MAP_RADIUS = 500; // 500半径(直径1000)
+    // 地图刷新中心点(世界边界中心 + 地图渲染中心 + 出生高度参考)
+    private static final double MAP_CENTER_X = 512.55;
+    private static final double MAP_CENTER_Y = 151.00;
+    private static final double MAP_CENTER_Z = 516.79;
     private static final long RESPAWN_INVINCIBLE_TICKS = 200; // 10秒无敌
     // 多阶段缩圈系统
     private int shrinkPhase = 0; // 0=未开始, 1/2/3=缩圈中, 4=终局对决, 5=最终缩圈
@@ -176,9 +180,9 @@ public class GameManager {
         } else {
             // 进入编辑模式 → 传送到地图(主世界)地表 + 创造模式
             ServerWorld overworld = server.getOverworld();
-            int x = 0, z = 0;
+            int x = (int) MAP_CENTER_X, z = (int) MAP_CENTER_Z;
             int y = overworld.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
-            if (y < overworld.getBottomY() + 1) y = 100; // 兜底高度
+            if (y < overworld.getBottomY() + 1) y = (int) MAP_CENTER_Y; // 兜底高度
             mapEditPlayers.add(uuid);
             player.changeGameMode(net.minecraft.world.GameMode.CREATIVE);
             player.teleport(overworld, x + 0.5, y, z + 0.5, java.util.Set.of(), player.getYaw(), player.getPitch(), false);
@@ -835,7 +839,7 @@ public class GameManager {
     private void setupWorldBorder() {
         ServerWorld world = server.getOverworld();
         WorldBorder border = world.getWorldBorder();
-        border.setCenter(519.86, 487.34);
+        border.setCenter(MAP_CENTER_X, MAP_CENTER_Z);
         border.setSize(MAP_RADIUS * 2); // 直径 = 半径*2
         border.setDamagePerBlock(0.0); // 伤害由tick()手动处理
         border.setSafeZone(0.0);
@@ -1067,17 +1071,6 @@ public class GameManager {
             ServerPlayerEntity player = server.getPlayerManager().getPlayer(pd.getPlayerUuid());
             if (player == null) continue;
 
-            // Y=55高度限制(禁止前往55格以下)
-            if (player.getY() < 55 && !player.isSpectator()) {
-                player.teleport((net.minecraft.server.world.ServerWorld) player.getEntityWorld(), player.getX(), 55.0, player.getZ(),
-                        Set.of(), player.getYaw(), player.getPitch(), false);
-                player.setVelocity(0, 0.1, 0);
-                player.velocityDirty = true;
-                if (currentTick % 20 == 0) {
-                    sendTip(player, "§c§l禁止前往55格以下高度！");
-                }
-            }
-
             // 重生安全检查: 仅在刚重生后立即触发一次, 避免无限循环传送(终圈bug)
             if (!player.isSpectator() && pd.getNeedsBorderSafeTeleportUntilTick() > 0
                     && currentTick <= pd.getNeedsBorderSafeTeleportUntilTick()) {
@@ -1091,7 +1084,7 @@ public class GameManager {
                     if (halfSize < 15.0) {
                         // 圈太小: 直接传送到圈中心
                         int cy = findSafeY(safeWorld, (int) bcx, (int) bcz);
-                        if (cy < 55) cy = 100;
+                        if (cy < 55) cy = (int) MAP_CENTER_Y;
                         safePos = new BlockPos((int) bcx, cy, (int) bcz);
                     } else {
                         // 在圈内随机选点(留5格余量), 然后用findSafeLandSpawn微调, 最后clamp回圈内
@@ -1107,7 +1100,7 @@ public class GameManager {
                         int cy = candidate.getY();
                         if (cx != candidate.getX() || cz != candidate.getZ()) {
                             cy = findSafeY(safeWorld, cx, cz);
-                            if (cy < 55) cy = 100;
+                            if (cy < 55) cy = (int) MAP_CENTER_Y;
                         }
                         safePos = new BlockPos(cx, cy, cz);
                     }
@@ -4429,7 +4422,7 @@ public class GameManager {
         if (halfSize < 15.0) {
             // 终圈太小: 直接复活在圈中心
             int cy = findSafeY(world, (int) centerX, (int) centerZ);
-            if (cy < 55) cy = 100;
+            if (cy < 55) cy = (int) MAP_CENTER_Y;
             safePos = new BlockPos((int) centerX, cy, (int) centerZ);
         } else {
             // 在圈内随机选点(留5格余量)
@@ -4444,7 +4437,7 @@ public class GameManager {
             int cy = candidate.getY();
             if (cx != candidate.getX() || cz != candidate.getZ()) {
                 cy = findSafeY(world, cx, cz);
-                if (cy < 55) cy = 100;
+                if (cy < 55) cy = (int) MAP_CENTER_Y;
             }
             safePos = new BlockPos(cx, cy, cz);
         }
