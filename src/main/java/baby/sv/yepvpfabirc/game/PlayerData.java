@@ -175,9 +175,11 @@ public class PlayerData {
     // ===== JANE 赏金猎人 =====
     private int bounty = 0;
     private boolean darkVisionActive = false;
-    private int crossbowPower = 0; // 力量附魔等级
-    private int crossbowQuickCharge = 0; // 快速装填附魔等级
-    private int crossbowMultishot = 0; // 多重射击附魔等级
+    // 散弹枪升级(沿用原字段): power=口径(弹丸伤害), quickCharge=泵动(射速), multishot=散射(弹丸数)
+    private int crossbowPower = 0; // 口径强化等级(0-5)
+    private int crossbowQuickCharge = 0; // 泵动装填等级(0-3)
+    private int crossbowMultishot = 0; // 散射弹丸等级(0-3)
+    private long lastShotgunFireTick = -1000; // 上次开火tick(用于射速冷却)
     private UUID janeTopTargetUuid = null; // 头号目标UUID
 
     // ===== SHUBING 薯饼 =====
@@ -655,6 +657,8 @@ public class PlayerData {
     public void setCrossbowQuickCharge(int level) { this.crossbowQuickCharge = level; }
     public int getCrossbowMultishot() { return crossbowMultishot; }
     public void setCrossbowMultishot(int level) { this.crossbowMultishot = level; }
+    public long getLastShotgunFireTick() { return lastShotgunFireTick; }
+    public void setLastShotgunFireTick(long tick) { this.lastShotgunFireTick = tick; }
     public UUID getJaneTopTargetUuid() { return janeTopTargetUuid; }
     public void setJaneTopTargetUuid(UUID uuid) { this.janeTopTargetUuid = uuid; }
     public void resetJaneOnDeath() { this.bounty = 0; }

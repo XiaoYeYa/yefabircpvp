@@ -66,6 +66,20 @@ public class AprilFoolsCommand {
                             return 1;
                         })
                 )
+                .then(CommandManager.literal("mapedit")
+                        .executes(ctx -> {
+                            ServerPlayerEntity player;
+                            try {
+                                player = ctx.getSource().getPlayerOrThrow();
+                            } catch (Exception e) {
+                                ctx.getSource().sendError(Text.literal("§c该命令只能由玩家执行。"));
+                                return 0;
+                            }
+                            Text result = GameManager.getInstance().toggleMapEdit(player);
+                            ctx.getSource().sendFeedback(() -> result, false);
+                            return 1;
+                        })
+                )
                 .then(CommandManager.literal("assign")
                         .then(CommandManager.argument("player", EntityArgumentType.player())
                                 .then(CommandManager.argument("role", StringArgumentType.word())

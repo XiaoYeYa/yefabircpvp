@@ -373,6 +373,10 @@ public class LobbyManager {
                     player.setHealth(player.getMaxHealth());
                 }
             } else {
+                // 地图编辑模式的管理员: 豁免大厅约束, 不强制拉回
+                if (GameManager.getInstance().isMapEditing(player.getUuid())) {
+                    continue;
+                }
                 // 不在大厅的玩家: 延迟1秒后传送(确保实体完全初始化)
                 if (player.age > 20) {
                     teleportToLobby(player);

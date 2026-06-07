@@ -151,6 +151,49 @@ public class GameManager {
 
     public LobbyManager getLobbyManager() { return lobbyManager; }
 
+    // ===== 地图编辑模式(管理员) =====
+    private final java.util.Set<UUID> mapEditPlayers = new java.util.HashSet<>();
+
+    public boolean isMapEditing(UUID uuid) {
+        return mapEditPlayers.contains(uuid);
+    }
+
+    // 切换地图编辑模式: 进入则从大厅传送到地图(主世界)地表并切创造, 退出则传回大厅
+    // 返回提示文本
+    public Text toggleMapEdit(ServerPlayerEntity player) {
+        if (gameActive) {
+            return Text.literal("§c游戏进行中无法进入地图编辑模式, 请在大厅阶段使用。");
+        }
+        if (server == null) {
+            return Text.literal("§c服务器未就绪。");
+        }
+        UUID uuid = player.getUuid();
+        if (mapEditPlayers.contains(uuid)) {
+            // 退出编辑模式 → 回大厅(teleportToLobby 会恢复冒险模式)
+            mapEditPlayers.remove(uuid);
+            lobbyManager.teleportToLobby(player);
+            return Text.literal("§a已退出地图编辑模式, 传送回大厅。");
+        } else {
+            // 进入编辑模式 → 传送到地图(主世界)地表 + 创造模式
+            ServerWorld overworld = server.getOverworld();
+            int x = 0, z = 0;
+            int y = overworld.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
+            if (y < overworld.getBottomY() + 1) y = 100; // 兜底高度
+            mapEditPlayers.add(uuid);
+            player.changeGameMode(net.minecraft.world.GameMode.CREATIVE);
+            player.teleport(overworld, x + 0.5, y, z + 0.5, java.util.Set.of(), player.getYaw(), player.getPitch(), false);
+            return Text.literal("§6已进入地图编辑模式(创造模式)。再次输入命令退出并返回大厅。");
+        }
+    }
+
+    public void clearMapEdit() {
+        mapEditPlayers.clear();
+    }
+
+    public void exitMapEditOnDisconnect(UUID uuid) {
+        mapEditPlayers.remove(uuid);
+    }
+
     public void setServer(MinecraftServer server) {
         this.server = server;
         loadRoleSpawnPoints();
@@ -529,6 +572,9 @@ public class GameManager {
             broadcastMessage("§c§l【系统】§r§c 地图正在重置中，请稍后再开始游戏！");
             return;
         }
+
+        // 游戏开始: 清空地图编辑模式状态(编辑者随正常流程进入游戏)
+        clearMapEdit();
 
         // 删除旧存档文件（游戏开始意味着新一局）
         try {
@@ -3632,15 +3678,16 @@ public class GameManager {
         // 被动: 速度2
         player.addStatusEffect(new StatusEffectInstance(StatusEffects.SPEED, 40, 1, false, false, true));
 
-        // 补充箭矢(保持至少16支)
-        int arrowCount = 0;
+        // 确保散弹枪在身上(掉了/被换则补给)
+        boolean hasShotgun = false;
         for (int i = 0; i < player.getInventory().size(); i++) {
-            if (player.getInventory().getStack(i).isOf(Items.ARROW)) {
-                arrowCount += player.getInventory().getStack(i).getCount();
+            if (player.getInventory().getStack(i).isOf(baby.sv.yepvpfabirc.ModItems.SHOTGUN)) {
+                hasShotgun = true;
+                break;
             }
         }
-        if (arrowCount < 16) {
-            player.getInventory().insertStack(new ItemStack(Items.ARROW, 64 - arrowCount));
+        if (!hasShotgun) {
+            giveJaneShotgun(player, data);
         }
 
         // 头号目标追踪: 除Jane外击杀最多的玩家
@@ -3842,48 +3889,72 @@ public class GameManager {
     private void setupJane(ServerPlayerEntity player, PlayerData data, EntityAttributeInstance healthAttr, boolean freshStart) {
         if (healthAttr != null) healthAttr.setBaseValue(16.0); // 8心
         if (!freshStart) return; // 重生保留物品
-        // 给予无限弩(不可破坏) + 根据升级附魔
-        giveJaneCrossbow(player, data);
-        // 给予一组箭矢
-        player.getInventory().insertStack(new ItemStack(Items.ARROW, 64));
+        // 给予散弹枪(开火逻辑在 tryFireShotgun 中处理, 无需弹药)
+        giveJaneShotgun(player, data);
     }
 
-    public void giveJaneCrossbow(ServerPlayerEntity player, PlayerData data) {
-        // 移除旧弩
+    public void giveJaneShotgun(ServerPlayerEntity player, PlayerData data) {
+        // 移除旧武器(散弹枪 / 历史遗留的弩)
         for (int i = 0; i < player.getInventory().size(); i++) {
-            if (player.getInventory().getStack(i).isOf(Items.CROSSBOW)) {
+            ItemStack s = player.getInventory().getStack(i);
+            if (s.isOf(baby.sv.yepvpfabirc.ModItems.SHOTGUN) || s.isOf(Items.CROSSBOW)) {
                 player.getInventory().removeStack(i);
             }
         }
-        ItemStack crossbow = new ItemStack(Items.CROSSBOW);
-        crossbow.set(DataComponentTypes.UNBREAKABLE, net.minecraft.util.Unit.INSTANCE);
-        crossbow.set(DataComponentTypes.CUSTOM_NAME, Text.literal("§6§l赏金猎人之弩").styled(s -> s.withItalic(false)));
-        var world = player.getEntityWorld();
-        var reg = world.getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
-        // 无限(Infinity) — 弩不消耗箭矢
-        var infinity = reg.getOptional(Enchantments.INFINITY).orElse(null);
-        if (infinity != null) crossbow.addEnchantment(infinity, 1);
-        // 力量(Power)附魔
-        if (data.getCrossbowPower() > 0) {
-            var power = reg.getOptional(Enchantments.POWER).orElse(null);
-            if (power != null) crossbow.addEnchantment(power, data.getCrossbowPower());
-        }
-        // 快速装填(Quick Charge)
-        if (data.getCrossbowQuickCharge() > 0) {
-            var quickCharge = reg.getOptional(Enchantments.QUICK_CHARGE).orElse(null);
-            if (quickCharge != null) crossbow.addEnchantment(quickCharge, data.getCrossbowQuickCharge());
-        }
-        // 多重射击(Multishot)
-        if (data.getCrossbowMultishot() > 0) {
-            var multishot = reg.getOptional(Enchantments.MULTISHOT).orElse(null);
-            if (multishot != null) crossbow.addEnchantment(multishot, data.getCrossbowMultishot());
-        }
+        ItemStack shotgun = new ItemStack(baby.sv.yepvpfabirc.ModItems.SHOTGUN);
+        shotgun.set(DataComponentTypes.UNBREAKABLE, net.minecraft.util.Unit.INSTANCE);
+        shotgun.set(DataComponentTypes.CUSTOM_NAME, Text.literal("§6§l赏金猎人·散弹枪").styled(s -> s.withItalic(false)));
         // 强制放在快捷栏slot 0, 旧物品移走
         ItemStack oldSlot0 = player.getInventory().getStack(0);
-        player.getInventory().setStack(0, crossbow);
+        player.getInventory().setStack(0, shotgun);
         if (!oldSlot0.isEmpty()) {
             player.getInventory().insertStack(oldSlot0);
         }
+    }
+
+    // JANE: 散弹枪开火(右键触发) — 一次喷射一簇弹丸(箭), 带射速冷却与音效
+    // 返回 true 表示已处理(消耗右键事件)
+    public boolean tryFireShotgun(ServerPlayerEntity player, net.minecraft.util.Hand hand) {
+        if (!gameActive) return false;
+        ItemStack stack = player.getStackInHand(hand);
+        if (!stack.isOf(baby.sv.yepvpfabirc.ModItems.SHOTGUN)) return false;
+        PlayerData data = players.get(player.getUuid());
+        if (data == null || data.getRole() != Role.JANE || !data.isAlive()) return true;
+
+        long now = player.getEntityWorld().getTime();
+        // 射速冷却: 基础20tick(1秒), 每级泵动 -4tick, 下限6tick
+        int cooldownTicks = Math.max(6, 20 - data.getCrossbowQuickCharge() * 4);
+        if (now - data.getLastShotgunFireTick() < cooldownTicks) {
+            return true; // 冷却中, 消耗事件但不开火
+        }
+        data.setLastShotgunFireTick(now);
+
+        ServerWorld world = (ServerWorld) player.getEntityWorld();
+        int pellets = 5 + data.getCrossbowMultishot() * 2;       // 5 -> 11 颗弹丸
+        double damage = 2.0 + data.getCrossbowPower() * 1.0;     // 每颗弹丸伤害(口径越大越疼)
+        float divergence = 10.0f;                                // 散布角度
+
+        for (int i = 0; i < pellets; i++) {
+            net.minecraft.entity.projectile.ArrowEntity pellet =
+                    new net.minecraft.entity.projectile.ArrowEntity(world, player, new ItemStack(Items.ARROW), stack);
+            pellet.setVelocity(player, player.getPitch(), player.getYaw(), 0.0f, 2.6f, divergence);
+            pellet.setDamage(damage);
+            pellet.setCritical(false);
+            // 新建的箭默认 pickupType=DISALLOWED, 不会被拾取造成背包堆积
+            world.spawnEntity(pellet);
+        }
+
+        // 开火音效
+        world.playSound(null, player.getX(), player.getY(), player.getZ(),
+                net.minecraft.sound.SoundEvents.ITEM_CROSSBOW_SHOOT,
+                net.minecraft.sound.SoundCategory.PLAYERS, 1.0f, 0.7f);
+        world.playSound(null, player.getX(), player.getY(), player.getZ(),
+                net.minecraft.sound.SoundEvents.ENTITY_FIREWORK_ROCKET_BLAST,
+                net.minecraft.sound.SoundCategory.PLAYERS, 0.6f, 1.4f);
+
+        // 物品冷却视觉
+        player.getItemCooldownManager().set(stack, cooldownTicks);
+        return true;
     }
 
     // HELI: 地图点击 → 传送自己到最近被揭露的玩家身旁(1分钟CD)
@@ -3929,38 +4000,38 @@ public class GameManager {
             return;
         }
         switch (upgradeType) {
-            case 0 -> { // 力量(Power)
+            case 0 -> { // 口径强化(每发弹丸伤害)
                 if (data.getCrossbowPower() >= 5) {
-                    sendTip(player, "§c力量已满级！(5级)");
+                    sendTip(player, "§c口径强化已满级！(5级)");
                     NetworkHandler.sendJaneShopData(player, data);
                     return;
                 }
                 data.setBounty(data.getBounty() - cost);
                 data.setCrossbowPower(data.getCrossbowPower() + 1);
-                giveJaneCrossbow(player, data);
-                broadcastMessage("§6§l[赏金] §r§e" + player.getGameProfile().name() + " §6升级了 §e力量 " + data.getCrossbowPower() + " §7(-" + cost + "赏金)");
+                giveJaneShotgun(player, data);
+                broadcastMessage("§6§l[赏金] §r§e" + player.getGameProfile().name() + " §6升级了 §e口径强化 " + data.getCrossbowPower() + " §7(-" + cost + "赏金)");
             }
-            case 1 -> { // 快速装填(Quick Charge)
+            case 1 -> { // 泵动装填(射速)
                 if (data.getCrossbowQuickCharge() >= 3) {
-                    sendTip(player, "§c快速装填已满级！(3级)");
+                    sendTip(player, "§c泵动装填已满级！(3级)");
                     NetworkHandler.sendJaneShopData(player, data);
                     return;
                 }
                 data.setBounty(data.getBounty() - cost);
                 data.setCrossbowQuickCharge(data.getCrossbowQuickCharge() + 1);
-                giveJaneCrossbow(player, data);
-                broadcastMessage("§6§l[赏金] §r§e" + player.getGameProfile().name() + " §6升级了 §e快速装填 " + data.getCrossbowQuickCharge() + " §7(-" + cost + "赏金)");
+                giveJaneShotgun(player, data);
+                broadcastMessage("§6§l[赏金] §r§e" + player.getGameProfile().name() + " §6升级了 §e泵动装填 " + data.getCrossbowQuickCharge() + " §7(-" + cost + "赏金)");
             }
-            case 2 -> { // 多重射击(Multishot)
-                if (data.getCrossbowMultishot() >= 1) {
-                    sendTip(player, "§c多重射击已满级！(1级)");
+            case 2 -> { // 散射弹丸(弹丸数量)
+                if (data.getCrossbowMultishot() >= 3) {
+                    sendTip(player, "§c散射弹丸已满级！(3级)");
                     NetworkHandler.sendJaneShopData(player, data);
                     return;
                 }
                 data.setBounty(data.getBounty() - cost);
                 data.setCrossbowMultishot(data.getCrossbowMultishot() + 1);
-                giveJaneCrossbow(player, data);
-                broadcastMessage("§6§l[赏金] §r§e" + player.getGameProfile().name() + " §6升级了 §e多重射击 " + data.getCrossbowMultishot() + " §7(-" + cost + "赏金)");
+                giveJaneShotgun(player, data);
+                broadcastMessage("§6§l[赏金] §r§e" + player.getGameProfile().name() + " §6升级了 §e散射弹丸 " + data.getCrossbowMultishot() + " §7(-" + cost + "赏金)");
             }
             default -> { return; }
         }
