@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "yepvpfabirc",
+  "version": "1.0-SNAPSHOT",
+  "name": "yepvpfabirc",
+  "description": "",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/yepvpfabirc/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "baby.sv.yepvpfabirc.client.YepvpfabircDataGenerator"
+    ],
+    "client": [
+      "baby.sv.yepvpfabirc.client.YepvpfabircClient"
+    ],
+    "main": [
+      "baby.sv.yepvpfabirc.Yepvpfabirc"
+    ]
+  },
+  "mixins": [
+    "yepvpfabirc.mixins.json",
+    {
+      "config": "yepvpfabirc.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "fabric-api": "*",
+    "minecraft": "1.21.11"
+  }
+}

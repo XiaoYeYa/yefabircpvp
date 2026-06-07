@@ -1,0 +1,38 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "baby.sv.yepvpfabirc.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "PlayerDeathMixin",
+    "PlayerRespawnMixin",
+    "SnowballHitMixin",
+    "GlassBreakMixin",
+    "BaneOfArthropodsMixin",
+    "DamaiAttackMixin",
+    "StrengthDamageMixin",
+    "PaintingInteractMixin",
+    "PaintingBreakMixin",
+    "PaintingAttackMixin",
+    "BlockInteractMixin",
+    "CobwebMixin",
+    "WebPlaceMixin",
+    "LivingEntityAccessor",
+    "JaneMobKillMixin",
+    "JaneDamageMixin",
+    "SanchezWolfProtectMixin",
+    "SanchezWolfFeedMixin",
+    "CraftingResultMixin",
+    "AmethystBreakSpeedMixin",
+    "LayiFireworkMixin",
+    "EntityAccessor",
+    "FireworkRocketEntityAccessor",
+    "ServerMotdMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
