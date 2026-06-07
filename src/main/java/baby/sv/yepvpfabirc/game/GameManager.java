@@ -1137,9 +1137,15 @@ public class GameManager {
         }
 
         // 地图数据推送到所有玩家(每2秒, HUD小地图+全屏地图共用)
+        // 优化: 共享的颜色块/全局附加数据每周期只构建+压缩一次, 所有玩家复用;
+        //       仅玩家标记段(可见性因人而异)按玩家单独构建。避免"每2秒 × 人数 × 全图序列化+gzip"的主线程尖峰。
         if (currentTick % 40 == 0) {
+            net.minecraft.server.world.ServerWorld mapWorld = server.getOverworld();
+            byte[] colorMember = MapDataCollector.buildColorMemberGzipped(mapWorld);
+            byte[] suffixMember = MapDataCollector.buildSuffixMemberGzipped(mapWorld);
             for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
-                byte[] mapData = MapDataCollector.buildMapData(server.getOverworld(), p.getUuid());
+                byte[] markersMember = MapDataCollector.buildMarkersMemberGzipped(mapWorld, p.getUuid());
+                byte[] mapData = MapDataCollector.concatMembers(colorMember, markersMember, suffixMember);
                 baby.sv.yepvpfabirc.network.NetworkHandler.sendMapData(p, mapData);
             }
         }
