@@ -53,6 +53,7 @@ public class Yepvpfabirc implements ModInitializer {
     @Override
     public void onInitialize() {
         ModSounds.register();
+        ModItems.register();
         NetworkHandler.registerServer();
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
@@ -112,6 +113,11 @@ public class Yepvpfabirc implements ModInitializer {
                     if (handled) {
                         return ActionResult.SUCCESS;
                     }
+                } else {
+                    // JANE: 右键散弹枪开火
+                    if (GameManager.getInstance().tryFireShotgun(sp, hand)) {
+                        return ActionResult.SUCCESS;
+                    }
                 }
             }
             return ActionResult.PASS;
@@ -122,6 +128,11 @@ public class Yepvpfabirc implements ModInitializer {
             server.execute(() -> {
                 NetworkHandler.sendVersionCheck(handler.getPlayer());
             });
+        });
+
+        // 玩家退出时清理地图编辑状态(避免重连后卡在地图)
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            GameManager.getInstance().exitMapEditOnDisconnect(handler.getPlayer().getUuid());
         });
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {

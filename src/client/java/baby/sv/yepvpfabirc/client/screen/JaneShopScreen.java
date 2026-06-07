@@ -55,12 +55,12 @@ public class JaneShopScreen extends Screen {
         int cardsY = (this.height - CARD_H) / 2 + 10;
         int startX = px + (PANEL_W - 3 * CARD_W - 2 * CARD_GAP) / 2;
 
-        // 力量升级按钮
+        // 口径强化升级按钮
         addUpgradeButton(startX, cardsY + CARD_H + 6, CARD_W, 0, power, 5);
-        // 快速装填升级按钮
+        // 泵动装填升级按钮
         addUpgradeButton(startX + CARD_W + CARD_GAP, cardsY + CARD_H + 6, CARD_W, 1, quickCharge, 3);
-        // 多重射击升级按钮
-        addUpgradeButton(startX + 2 * (CARD_W + CARD_GAP), cardsY + CARD_H + 6, CARD_W, 2, multishot, 1);
+        // 散射弹丸升级按钮
+        addUpgradeButton(startX + 2 * (CARD_W + CARD_GAP), cardsY + CARD_H + 6, CARD_W, 2, multishot, 3);
 
         // 关闭按钮
         this.addDrawableChild(ButtonWidget.builder(Text.literal("§c关闭"), btn -> close())
@@ -95,7 +95,7 @@ public class JaneShopScreen extends Screen {
 
         // 标题栏
         ctx.fill(px + 1, panelTop + 1, px + PANEL_W - 1, panelTop + 28, HEADER_BG);
-        String title = "⚔ 赏金猎人商店 ⚔";
+        String title = "⚔ 赏金猎人·散弹枪店 ⚔";
         int titleW = this.textRenderer.getWidth(title);
         ctx.drawText(this.textRenderer, title, px + (PANEL_W - titleW) / 2, panelTop + 9, TEXT_GOLD, true);
 
@@ -108,16 +108,16 @@ public class JaneShopScreen extends Screen {
         int startX = px + (PANEL_W - 3 * CARD_W - 2 * CARD_GAP) / 2;
 
         drawUpgradeCard(ctx, startX, cardsY, CARD_W, CARD_H, mouseX, mouseY,
-                "§b⚡ 力量", "Power", power, 5,
-                "弩箭伤害增加", "每级+0.5心");
+                "§c⚡ 口径强化", "Caliber", power, 5,
+                "每发弹丸伤害↑", "每级+0.5心");
 
         drawUpgradeCard(ctx, startX + CARD_W + CARD_GAP, cardsY, CARD_W, CARD_H, mouseX, mouseY,
-                "§a⚡ 快速装填", "Quick Charge", quickCharge, 3,
-                "装填时间缩短", "每级-0.25秒");
+                "§b⚡ 泵动装填", "Pump", quickCharge, 3,
+                "射击冷却缩短", "每级-0.2秒");
 
         drawUpgradeCard(ctx, startX + 2 * (CARD_W + CARD_GAP), cardsY, CARD_W, CARD_H, mouseX, mouseY,
-                "§d⚡ 多重射击", "Multishot", multishot, 1,
-                "同时发射3支箭", "最大1级");
+                "§e⚡ 散射弹丸", "Pellets", multishot, 3,
+                "弹丸数量增加", "基础5→满级11");
 
         super.render(ctx, mouseX, mouseY, delta);
     }
